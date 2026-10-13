@@ -405,13 +405,29 @@ function win32.setupStdlib()
         end
         return dir, err
     end
+    require("ffi/posix_h")
+    -- Map the Windows errors to `errno` values (like the C runtime does).
+    local ERRNO_FROM_ERROR = {
+        [2] = 2,      -- ERROR_FILE_NOT_FOUND: ENOENT
+        [3] = 2,      -- ERROR_PATH_NOT_FOUND: ENOENT
+        [5] = 13,     -- ERROR_ACCESS_DENIED: EACCES
+        [17] = 18,    -- ERROR_NOT_SAME_DEVICE: EXDEV
+        [19] = 13,    -- ERROR_WRITE_PROTECT: EACCES
+        [32] = 13,    -- ERROR_SHARING_VIOLATION: EACCES
+        [33] = 13,    -- ERROR_LOCK_VIOLATION: EACCES
+        [39] = 28,    -- ERROR_HANDLE_DISK_FULL: ENOSPC
+        [80] = 17,    -- ERROR_FILE_EXISTS: EEXIST
+        [112] = 28,   -- ERROR_DISK_FULL: ENOSPC
+        [145] = 41,   -- ERROR_DIR_NOT_EMPTY: ENOTEMPTY
+        [183] = 17,   -- ERROR_ALREADY_EXISTS: EEXIST
+    }
     local rename_flags = bit.bor(C.MOVEFILE_REPLACE_EXISTING, C.MOVEFILE_COPY_ALLOWED, C.MOVEFILE_WRITE_THROUGH)
     os.rename = function(oldname, newname) -- luacheck: ignore 122
         if C.MoveFileExA(oldname, newname, rename_flags) ~= 0 then
             return true
         end
-        local code = C.GetLastError()
-        return nil, string.format("%s: %s", oldname, win32.errorString(code)), code
+        local errno = ERRNO_FROM_ERROR[C.GetLastError()] or C.EINVAL
+        return nil, string.format("%s: %s", oldname, ffi.string(C.strerror(errno))), errno
     end
     local os_remove = os.remove
     os.remove = function(path) -- luacheck: ignore 122
