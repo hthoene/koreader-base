@@ -348,6 +348,25 @@ end
 
 -- }}}
 
+-- Libraries. {{{
+
+--[[--
+Look for the dependencies of the libraries we load in `dir` first (before the
+system directories, which may contain incompatible libraries with the same name).
+
+NOTE: the launcher already does that, but not the standalone LuaJIT interpreter.
+]]
+function win32.setDllDirectory(dir)
+    local size = C.GetFullPathNameA(dir, 0, nil, nil)
+    local buffer = ffi.new("char[?]", size)
+    if size == 0 or C.GetFullPathNameA(dir, size, buffer, nil) == 0 or C.SetDllDirectoryA(buffer) == 0 then
+        return false, win32.errorString()
+    end
+    return true
+end
+
+-- }}}
+
 -- Standard library. {{{
 
 --[[--
