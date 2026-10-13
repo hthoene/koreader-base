@@ -22,7 +22,7 @@ local android = ffi.os == "Linux" and os.getenv("IS_ANDROID") and require("andro
 local log = ffi.log or android and android.LOGI or print
 
 local monolibtic = {
-    path = (android and android.nativeLibraryDir or "libs") .. "/libkoreader-monolibtic." .. (ffi.os == "OSX" and "dylib" or "so"),
+    path = (android and android.nativeLibraryDir or "libs") .. "/libkoreader-monolibtic." .. (ffi.os == "OSX" and "dylib" or ffi.os == "Windows" and "dll" or "so"),
     redirects = {
         ["archive"]    = true,
         ["blitbuffer"] = true,
@@ -76,6 +76,8 @@ end
 local lib_search_path
 local lib_basic_format
 local lib_version_format
+-- Optional last resort lookup for each candidate (by name).
+local lib_fallback
 
 -- Format library name with `lib_version_format` (when versioned) or `lib_basic_format`.
 local function libname(name, version)
@@ -96,6 +98,12 @@ local function findlib(...)
     local path = package.searchpath(lib, lib_search_path, "/", "/")
     if path then
         return path
+    end
+    if lib_fallback then
+        path = lib_fallback(name)
+        if path then
+            return path
+        end
     end
     return findlib(select(3, ...))
 end
@@ -163,6 +171,41 @@ elseif ffi.os == "OSX" then
     lib_basic_format = "lib%s.dylib"
     -- Versioned: libz.1.dylib
     lib_version_format = "lib%s.%s.dylib"
+elseif ffi.os == "Windows" then
+    -- NOTE: use the native path separator (c.f. `LoadLibraryEx`).
+    lib_search_path = "libs\\?"
+    -- Unversioned: libz.dll
+    lib_basic_format = "lib%s.dll"
+    -- Versioned: libfreetype-6.dll
+    lib_version_format = "lib%s-%s.dll"
+    -- DLL names do not follow a single convention (e.g. `libz.dll`, `libfreetype-6.dll`,
+    -- `libleptonica-1.87.0.dll`, `SDL3.dll`): so try them all, in that order.
+    local libs
+    lib_fallback = function(name)
+        for __, lib in ipairs{ "lib" .. name .. ".dll", name .. ".dll" } do
+            local path = package.searchpath(lib, lib_search_path, "/", "/")
+            if path then
+                return path
+            end
+        end
+        -- Any version: `lib<name>-<version>.dll`.
+        if not libs then
+            libs = {}
+            local lfs = require("libs/libkoreader-lfs")
+            local ok, iter, dir_obj = pcall(lfs.dir, "libs")
+            if ok then
+                for f in iter, dir_obj do
+                    table.insert(libs, f)
+                end
+            end
+        end
+        local pattern = "^lib" .. name:gsub("%p", "%%%0") .. "%-[%d.]+%.dll$"
+        for __, f in ipairs(libs) do
+            if f:match(pattern) then
+                return "libs" .. package.config:sub(1, 1) .. f
+            end
+        end
+    end
 end
 
 log("lib_search_path: " .. lib_search_path)

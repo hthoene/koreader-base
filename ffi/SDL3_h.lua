@@ -1063,6 +1063,7 @@ bool SDL_SyncWindow(SDL_Window *);
 const char *SDL_GetBasePath(void);
 SDL_PowerState SDL_GetPowerInfo(int *, int *);
 const char *SDL_GetPlatform(void);
+bool SDL_OpenURL(const char *);
 bool SDL_HasClipboardText(void);
 char *SDL_GetClipboardText(void);
 bool SDL_SetClipboardText(const char *);

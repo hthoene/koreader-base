@@ -12,69 +12,19 @@ local posix = require("ffi/posix")
 
 local lshift = bit.lshift
 local band = bit.band
-local bor = bit.bor
 
--- win32 utility
-ffi.cdef[[
-typedef unsigned int UINT;
-typedef unsigned long DWORD;
-typedef char *LPSTR;
-typedef wchar_t *LPWSTR;
-typedef const char *LPCSTR;
-typedef const wchar_t *LPCWSTR;
-typedef bool *LPBOOL;
-typedef LPSTR LPTSTR;
-typedef int BOOL;
+local win32 = ffi.os == "Windows" and require("ffi/win32")
 
-typedef struct _FILETIME {
-    DWORD dwLowDateTime;
-    DWORD dwHighDateTime;
-} FILETIME, *PFILETIME;
-
-void GetSystemTimeAsFileTime(FILETIME*);
-DWORD GetFullPathNameA(
-    LPCSTR lpFileName,
-    DWORD nBufferLength,
-    LPSTR lpBuffer,
-    LPSTR *lpFilePart
-);
-LPTSTR PathFindFileNameA(LPCSTR lpszPath);
-BOOL PathRemoveFileSpec(LPTSTR pszPath);
-UINT GetACP(void);
-int MultiByteToWideChar(
-    UINT CodePage,
-    DWORD dwFlags,
-    LPCSTR lpMultiByteStr,
-    int cbMultiByte,
-    LPWSTR lpWideCharStr,
-    int cchWideChar
-);
-int WideCharToMultiByte(
-    UINT CodePage,
-    DWORD dwFlags,
-    LPCWSTR lpWideCharStr,
-    int cchWideChar,
-    LPSTR lpMultiByteStr,
-    int cbMultiByte,
-    LPCSTR lpDefaultChar,
-    LPBOOL lpUsedDefaultChar
-);
-]]
 
 local util = {}
 
-if ffi.os == "Windows" then
+if win32 then
+    local ft = ffi.new("FILETIME")
     util.gettime = function()
-        local ft = ffi.new('FILETIME[1]')[0]
-        local tmpres = ffi.new('unsigned long', 0)
-        C.GetSystemTimeAsFileTime(ft)
-        tmpres = bor(tmpres, ft.dwHighDateTime)
-        tmpres = lshift(tmpres, 32)
-        tmpres = bor(tmpres, ft.dwLowDateTime)
-        -- converting file time to unix epoch
-        tmpres = tmpres - 11644473600000000ULL
-        tmpres = tmpres / 10
-        return tonumber(tmpres / 1000000ULL), tonumber(tmpres % 1000000ULL)
+        C.GetSystemTimePreciseAsFileTime(ft)
+        -- 100-nanosecond intervals since January 1, 1601 (UTC) → microseconds since the Unix epoch.
+        local us = (lshift(ffi.cast("uint64_t", ft.dwHighDateTime), 32) + ft.dwLowDateTime) / 10 - 11644473600000000ULL
+        return tonumber(us / 1000000), tonumber(us % 1000000)
     end
 else
     local timeval = ffi.new("struct timeval")
@@ -84,12 +34,12 @@ else
     end
 end
 
-if ffi.os == "Windows" then
+if win32 then
     util.sleep = function(sec)
-        C.Sleep(sec*1000)
+        C.Sleep(sec * 1000)
     end
     util.usleep = function(usec)
-        C.Sleep(usec/1000)
+        C.Sleep(usec / 1000)
     end
 else
     util.sleep = C.sleep
@@ -112,6 +62,13 @@ local has_statvfs = pcall(function() return C.statvfs ~= nil end)
 -- Available is what df reports in that column: free space less the blocks kept
 -- back for root. Returns nil plus a message if the filesystem cannot be queried.
 function util.df(path)
+    if win32 then
+        local total, free, avail = ffi.new("ULARGE_INTEGER"), ffi.new("ULARGE_INTEGER"), ffi.new("ULARGE_INTEGER")
+        if C.GetDiskFreeSpaceExA(path, avail, total, free) == 0 then
+            return nil, "GetDiskFreeSpaceEx: " .. win32.errorString()
+        end
+        return tonumber(total.QuadPart), tonumber(free.QuadPart), tonumber(avail.QuadPart)
+    end
     if not has_statvfs then return nil, "statvfs is not available" end
     local statvfs = ffi.new("struct statvfs")
     if C.statvfs(path, statvfs) ~= 0 then return nil, "statvfs: " .. posix.strerror() end
@@ -160,12 +117,27 @@ function util.strcoll(str1, str2)
 end
 
 --- Wrapper for C.realpath.
-if ffi.os == "Windows" then
+if win32 then
+    -- NOTE: we use forward slashes as path separators (like on other platforms).
     function util.realpath(path)
-        local buffer = ffi.new("char[?]", C.PATH_MAX)
-        if C.GetFullPathNameA(path, C.PATH_MAX, buffer, nil) ~= 0 then
-            return ffi.string(buffer)
+        -- `/` is a virtual root, whose children are the drives (c.f. `win32.getDrives`):
+        -- so going up from the root of a drive (e.g. `C:/..`) leads to it.
+        if path:match("^[/\\]+$") or path:match("^%a:[/\\]*%.%.[/\\]*$") then
+            return "/"
         end
+        local size = C.GetFullPathNameA(path, 0, nil, nil)
+        if size == 0 then
+            return
+        end
+        local buffer = ffi.new("char[?]", size)
+        size = C.GetFullPathNameA(path, size, buffer, nil)
+        -- Like `realpath`, fail if the path does not exist.
+        if size == 0 or C.GetFileAttributesA(buffer) == C.INVALID_FILE_ATTRIBUTES then
+            return
+        end
+        path = ffi.string(buffer, size):gsub("\\", "/")
+        -- Remove trailing separators (but keep the root of a drive: `C:/`).
+        return path:match("^(.-[^/:])/*$") or path
     end
 else
     function util.realpath(path)
@@ -177,10 +149,14 @@ else
 end
 
 --- Wrapper for C.basename.
-if ffi.os == "Windows" then
+if win32 then
     function util.basename(path)
-        local ptr = ffi.cast("uint8_t *", path)
-        return ffi.string(C.PathFindFileNameA(ptr))
+        -- Strip trailing separators, but keep the root (e.g. `/`, or `C:/`).
+        local stripped = path:match("^(.-[^/\\:])[/\\]*$")
+        if not stripped then
+            return path
+        end
+        return stripped:match("([^/\\:]+)$") or stripped
     end
 else
     function util.basename(in_path)
@@ -199,18 +175,18 @@ else
 end
 
 --- Wrapper for C.dirname.
-if ffi.os == "Windows" then
-    function util.dirname(in_path)
-        --[[
-        Both PathRemoveFileSpec and dirname will change original input string,
-        so we need to make a copy.
-        --]]
-        local path = ffi.new("char[?]", #in_path + 1, in_path)
-        if C.PathRemoveFileSpec(path) then
-            return ffi.string(path)
-        else
-            return path
+if win32 then
+    function util.dirname(path)
+        local root, rest = path:match("^(%a:[/\\]?)(.*)$")
+        if not root then
+            root, rest = path:match("^([/\\]?)(.*)$")
         end
+        -- Strip trailing separators, then the last component, then separators again.
+        local dir = rest:gsub("[/\\]+$", ""):gsub("[^/\\]+$", ""):gsub("[/\\]+$", "")
+        if dir == "" then
+            return root ~= "" and root or "."
+        end
+        return root .. dir
     end
 else
     function util.dirname(in_path)
@@ -246,7 +222,7 @@ Joins paths.
 NOTE: If `path2` is an absolute path, then this function ignores `path1` and returns `path2` directly.
 --]]
 function util.joinPath(path1, path2)
-    if string.sub(path2, 1, 1) == "/" then
+    if string.sub(path2, 1, 1) == "/" or (win32 and path2:match("^%a:[/\\]")) then
         return path2
     end
     if string.sub(path1, -1, -1) ~= "/" then
@@ -282,7 +258,14 @@ end
 
 --- Executes child process.
 function util.execute(...)
-    if util.isAndroid() then
+    if win32 then
+        local proc, err = win32.spawn({...})
+        if not proc then
+            print("util.execute:", err)
+            return -1
+        end
+        return proc:wait()
+    elseif util.isAndroid() then
         local A = require("android")
         return A.execute(...)
     else
@@ -347,7 +330,11 @@ end
 --                       It is safe to do so, though, it'll just immediately return success,
 --                       as waitpid will return -1 w/ an ECHILD errno.
 -- NOTE: Assumes the target platform is POSIX compliant.
+-- NOTE: Not supported on Windows (no `fork`), callers must check @{util.canFork}.
 function util.runInSubProcess(func, with_pipe, double_fork)
+    if win32 then
+        return false, "fork() is not supported on Windows"
+    end
     local parent_read_fd, parent_write_fd
     local child_read_fd, child_write_fd
     if with_pipe then
@@ -460,6 +447,9 @@ end
 -- This does not block, unless `wait` is `true`.
 -- Returns true if process was collected or has already exited, false if process is still running.
 function util.isSubProcessDone(pid, wait)
+    if win32 then
+        return true
+    end
     local status = ffi.new('int[1]')
     local ret = C.waitpid(pid, status, wait and 0 or C.WNOHANG)
     -- status = tonumber(status[0])
@@ -474,6 +464,9 @@ end
 
 --- Terminate subprocess pid by sending SIGKILL
 function util.terminateSubProcess(pid)
+    if win32 then
+        return
+    end
     local done = util.isSubProcessDone(pid)
     if not done then
         -- We kill with signal 9/SIGKILL, which may be violent, but ensures
@@ -497,6 +490,13 @@ end
 -- Caveats with pipes: returns 0 too if other side of pipe has exited
 -- without writing anything
 function util.getNonBlockingReadSize(fd_or_luafile)
+    if win32 then
+        -- Only supported for the programs started with `util.popen`.
+        if type(fd_or_luafile) == "table" and fd_or_luafile.available then
+            return fd_or_luafile:available()
+        end
+        return
+    end
     local fileno
     if type(fd_or_luafile) == "number" then -- low-level fd
         fileno = fd_or_luafile
@@ -612,6 +612,11 @@ end
 -- Returns true if syscall successful
 -- See http://blog.httrack.com/blog/2013/11/15/everything-you-always-wanted-to-know-about-fsync/
 function util.fsyncDirectory(path)
+    if win32 then
+        -- Directories can't be opened (nor synced) like files on Windows,
+        -- and there's no need to: file system metadata is journaled.
+        return lfs.attributes(path, "mode") ~= nil
+    end
     local attributes, err = lfs.attributes(path)
     if not attributes or err ~= nil then
         return false, err
@@ -659,24 +664,6 @@ function util.utf8charcode(charstring)
             lshift(band(ptr[1], 0x3F), 12) +
             lshift(band(ptr[2], 0x3F), 6) +
             band(ptr[3], 0x3F)
-    end
-end
-
-local CP_UTF8 = 65001
---- Converts multibyte string to utf-8 encoded string on Windows.
-function util.multiByteToUTF8(str, codepage)
-    -- if codepage is not provided we will query the system codepage
-    codepage = codepage or C.GetACP()
-    local size = C.MultiByteToWideChar(codepage, 0, str, -1, nil, 0)
-    if size > 0 then
-        local wstr = ffi.new("wchar_t[?]", size)
-        C.MultiByteToWideChar(codepage, 0, str, -1, wstr, size)
-        size = C.WideCharToMultiByte(CP_UTF8, 0, wstr, -1, nil, 0, nil, nil)
-        if size > 0 then
-            local mstr = ffi.new("char[?]", size)
-            C.WideCharToMultiByte(CP_UTF8, 0, wstr, -1, mstr, size, nil, nil)
-            return ffi.string(mstr)
-        end
     end
 end
 
@@ -799,7 +786,75 @@ function util.isExecutable(path)
     if not attributes or err ~= nil then
         return false, err
     end
+    if win32 then
+        -- There's no executable permission on Windows: rely on the file extension.
+        local ext = path:match("%.[^./\\]+$")
+        if attributes.mode ~= "file" or not ext then
+            return false
+        end
+        local pathext = ";" .. (os.getenv("PATHEXT") or ".COM;.EXE;.BAT;.CMD") .. ";"
+        return pathext:upper():find(";" .. ext:upper() .. ";", 1, true) ~= nil
+    end
     return attributes.mode == "file" and C.access(path, C.X_OK + C.R_OK) == 0
+end
+
+--- Create a unique temporary directory (like `mkdtemp`).
+-- @string template path ending with `XXXXXX`
+-- @treturn string|nil the path of the created directory, or nil and an error message
+function util.mkdtemp(template)
+    if win32 then
+        local chars = "abcdefghijklmnopqrstuvwxyz0123456789"
+        local err
+        for __ = 1, 100 do
+            local path = template:gsub("XXXXXX$", function()
+                local suffix = {}
+                for i = 1, 6 do
+                    local n = math.random(#chars)
+                    suffix[i] = chars:sub(n, n)
+                end
+                return table.concat(suffix)
+            end)
+            local ok
+            ok, err = lfs.mkdir(path)
+            if ok then
+                return path
+            end
+            if not lfs.attributes(path, "mode") then
+                -- Not a collision: give up.
+                break
+            end
+        end
+        return nil, string.format("mkdtemp(%s): %s", template, err)
+    end
+    local buffer = ffi.new("char[?]", #template + 1, template)
+    if C.mkdtemp(buffer) == nil then
+        return nil, string.format("mkdtemp(%s): %s", template, posix.strerror())
+    end
+    return ffi.string(buffer)
+end
+
+--- Whether @{util.runInSubProcess} is supported (it's not on Windows, which has no `fork`).
+function util.canFork()
+    return not win32
+end
+
+--[[--
+Run a program and read its standard output (like `io.popen`), but without
+going through a shell (so there's no need for quoting the arguments).
+
+@tparam {string,...} args the program and its arguments
+@return a file-like object (supporting at least `read("*a")` & `close()`),
+        that can be passed to @{util.getNonBlockingReadSize}, or nil and an error message
+]]
+function util.popen(args)
+    if win32 then
+        return win32.spawn(args, true)
+    end
+    local quoted = {}
+    for i, arg in ipairs(args) do
+        quoted[i] = "'" .. arg:gsub("'", "'\\''") .. "'"
+    end
+    return io.popen(table.concat(quoted, " "), "r")
 end
 
 return util

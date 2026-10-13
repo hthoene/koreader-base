@@ -125,6 +125,12 @@ function S.open(w, h, x, y)
     -- Enable VSYNC.
     SDL.SDL_SetHint("SDL_RENDER_VSYNC", "1")
 
+    if ffi.os == "Windows" then
+        -- Use the (multiple sizes) icon embedded in our executable.
+        SDL.SDL_SetHint("SDL_WINDOWS_INTRESOURCE_ICON", "1")
+        SDL.SDL_SetHint("SDL_WINDOWS_INTRESOURCE_ICON_SMALL", "1")
+    end
+
     -- Enable screensaver and X11 composition.
     SDL.SDL_EnableScreenSaver()
     SDL.SDL_SetHint("SDL_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR", "0")
@@ -206,16 +212,36 @@ end
 -- so this represents a FIFO queue
 local inputQueue = {}
 
+-- NOTE: SDL timestamps are in ms since application startup, which doesn't tell us anything useful,
+--       so, use synthetic ones in the same timescale as the UI (c.f. `ui/time`).
+local getMonotonicTime
+if ffi.os == "Windows" then
+    require("ffi/win32_h")
+    local counter = ffi.new("LARGE_INTEGER")
+    C.QueryPerformanceFrequency(counter)
+    local frequency = tonumber(counter.QuadPart)
+    getMonotonicTime = function()
+        C.QueryPerformanceCounter(counter)
+        local ticks = tonumber(counter.QuadPart)
+        return {
+            sec = math.floor(ticks / frequency),
+            usec = math.floor(ticks % frequency * 1e6 / frequency),
+        }
+    end
+else
+    getMonotonicTime = function()
+        local timespec = ffi.new("struct timespec")
+        C.clock_gettime(C.CLOCK_MONOTONIC_COARSE, timespec)
+        return {
+            sec = tonumber(timespec.tv_sec),
+            -- ns to µs
+            usec = math.floor(tonumber(timespec.tv_nsec / 1000)),
+        }
+    end
+end
+
 local function genEmuEvent(evtype, code, value)
-    -- NOTE: SDL timestamps are in ms since application startup, which doesn't tell us anything useful,
-    --       so, use synthetic ones in the same timescale as the UI.
-    local timespec = ffi.new("struct timespec")
-    C.clock_gettime(C.CLOCK_MONOTONIC_COARSE, timespec)
-    local timev = {
-        sec = tonumber(timespec.tv_sec),
-        -- ns to µs
-        usec = math.floor(tonumber(timespec.tv_nsec / 1000)),
-    }
+    local timev = getMonotonicTime()
 
     local ev = {
         type = tonumber(evtype),
@@ -674,6 +700,10 @@ function S.waitForEvent(sec, usec)
         genEmuEvent(C.EV_SDL, SDL.SDL_EVENT_MOUSE_WHEEL, event.wheel)
     elseif event.type == SDL.SDL_EVENT_DROP_FILE then
         local dropped_file_path = ffi.string(event.drop.data)
+        if ffi.os == "Windows" then
+            -- Use forward slashes as path separators (like the rest of our code).
+            dropped_file_path = dropped_file_path:gsub("\\", "/")
+        end
         genEmuEvent(C.EV_SDL, SDL.SDL_EVENT_DROP_FILE, dropped_file_path)
     elseif event.type == SDL.SDL_EVENT_DROP_TEXT then
         local dropped_text = ffi.string(event.drop.data)
@@ -781,6 +811,14 @@ end
 
 function S.getPlatform()
     return ffi.string(SDL.SDL_GetPlatform())
+end
+
+--- Open an URL (or a file / directory) with the system's default application.
+function S.openURL(url)
+    if not SDL.SDL_OpenURL(url) then
+        return false, ffi.string(SDL.SDL_GetError())
+    end
+    return true
 end
 
 function S.getPowerInfo()

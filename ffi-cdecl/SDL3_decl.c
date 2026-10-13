@@ -199,6 +199,7 @@ cdecl_func(SDL_SyncWindow)
 cdecl_func(SDL_GetBasePath)
 cdecl_func(SDL_GetPowerInfo)
 cdecl_func(SDL_GetPlatform)
+cdecl_func(SDL_OpenURL)
 
 cdecl_func(SDL_HasClipboardText)
 cdecl_func(SDL_GetClipboardText)

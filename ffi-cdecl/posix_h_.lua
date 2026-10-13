@@ -2,6 +2,12 @@
 
 local ffi = require("ffi")
 
+if ffi.os == "Windows" then
+    -- Not generated: c.f. `ffi/posix_h_win32.lua`.
+    require("ffi/posix_h_win32")
+    return
+end
+
 local platform_str
 if os.getenv("IS_ANDROID") then
     platform_str = "android_" .. ffi.arch
