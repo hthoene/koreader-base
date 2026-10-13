@@ -703,6 +703,12 @@ SPEC_ROCKS_DIR = $(OUTPUT_DIR)/spec/rocks
 
 BUILD_ENTRYPOINT = $(CMAKE_DIR)/build.ninja
 
+ifdef WIN32
+  # Application manifest (UTF-8 code page, long paths support, etc.),
+  # linked into all our executables (c.f. `win32/koreader.manifest`).
+  WIN32_MANIFEST_OBJ = $(abspath $(CMAKE_DIR)/win32_manifest.o)
+endif
+
 # you can configure an emulation for the (eink) framebuffer here.
 # the application won't use the framebuffer (and the special e-ink ioctls)
 # in that case.
@@ -884,7 +890,7 @@ set(CMAKE_C_FLAGS_RELEASE "")
 set(CMAKE_CXX_FLAGS_RELEASE "")
 
 # Linker.
-set(CMAKE_EXE_LINKER_FLAGS_INIT "$(strip $(LDFLAGS))")
+set(CMAKE_EXE_LINKER_FLAGS_INIT "$(strip $(LDFLAGS) $(WIN32_MANIFEST_OBJ))")
 set(CMAKE_SHARED_LINKER_FLAGS_INIT "$(strip $(filter-out -shared -dynamiclib,$(LDFLAGS) $(DYNLIB_LDFLAGS)))")
 set(CMAKE_MODULE_LINKER_FLAGS_INIT $${CMAKE_SHARED_LINKER_FLAGS_INIT})
 
@@ -1005,6 +1011,7 @@ set(KOTASYNC           $(KOTASYNC))
 set(MONOLIBTIC         $(MONOLIBTIC))
 set(USE_LJ_WPACLIENT   $(USE_LJ_WPACLIENT))
 set(USE_SDL            $(SDL))
+set(WIN32_MANIFEST_OBJ $(WIN32_MANIFEST_OBJ))
 set(WANT_SIMD          $(WANT_SIMD))
 set(GLIBC_VERSION_MAX  $(GLIBC_VERSION_MAX))
 set(KEEP_DEBUG         $(and $(filter -g%,$(BASE_CFLAGS)),1))

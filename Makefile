@@ -74,7 +74,7 @@ endif
 
 # CMake build interface. {{{
 
-setup $(BUILD_ENTRYPOINT): $(CMAKE_KOVARS) $(CMAKE_TCF) $(MESON_CROSS_TOOLCHAIN) $(MESON_HOST_TOOLCHAIN)
+setup $(BUILD_ENTRYPOINT): $(CMAKE_KOVARS) $(CMAKE_TCF) $(MESON_CROSS_TOOLCHAIN) $(MESON_HOST_TOOLCHAIN) $(WIN32_MANIFEST_OBJ)
 	$(info ************ Building for MACHINE: "$(MACHINE)" **********)
 	$(info ************ PATH: "$(PATH)" **********)
 	$(info ************ NINJA: $(strip $(NINJA) $(NINJAFLAGS)) ($(NINJA_VERSION)) **********)
@@ -93,6 +93,11 @@ $(CMAKE_TCF): $(KOR_BASE)/Makefile.defs | $(CMAKE_DIR)/
 
 $(CMAKE_DIR)/meson_%.ini: $(KOR_BASE)/Makefile.defs | $(CMAKE_DIR)/
 	$(call write_file,$@,$(meson_$*))
+
+ifdef WIN32
+$(WIN32_MANIFEST_OBJ): $(KOR_BASE)/win32/manifest.rc $(KOR_BASE)/win32/koreader.manifest | $(CMAKE_DIR)/
+	$(RC) -O coff -I $(KOR_BASE)/win32 -i $< -o $@
+endif
 
 # Forward unknown targets to the CMake build system.
 LEFTOVERS = $(filter-out $(PHONY) $(SOUND),$(MAKECMDGOALS) $(NINJA_GOALS))
