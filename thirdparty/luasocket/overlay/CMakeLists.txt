@@ -24,8 +24,8 @@ if(APPLE)
 elseif(LINUX)
     target_sources(luasocket PRIVATE src/usocket.c)
 elseif(WIN32)
-    # TODO
-    message(FATAL_ERROR "Windows is not supported")
+    target_sources(luasocket PRIVATE src/wsocket.c)
+    target_link_libraries(luasocket PUBLIC ws2_32)
 endif()
 target_link_libraries(luasocket PRIVATE PkgConfig::LuaJIT)
 

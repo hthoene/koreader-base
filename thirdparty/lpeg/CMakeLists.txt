@@ -10,7 +10,7 @@ list(APPEND BUILD_CMD COMMAND ninja)
 if(MONOLIBTIC)
     append_install_commands(INSTALL_CMD lpeg.a DESTINATION ${STAGING_DIR}/lib)
 else()
-    append_binary_install_command(INSTALL_CMD lpeg.so DESTINATION common)
+    append_binary_install_command(INSTALL_CMD lpeg${LUA_MODULE_SUFFIX} DESTINATION common)
 endif()
 append_install_commands(INSTALL_CMD ${SOURCE_DIR}/re.lua DESTINATION common)
 

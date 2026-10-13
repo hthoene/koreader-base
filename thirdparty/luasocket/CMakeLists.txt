@@ -47,13 +47,14 @@ append_install_commands(INSTALL_CMD DESTINATION ${STAGING_DIR}/include/luasocket
     ${SOURCE_DIR}/src/socket.h
     ${SOURCE_DIR}/src/timeout.h
     ${SOURCE_DIR}/src/usocket.h
+    ${SOURCE_DIR}/src/wsocket.h
 )
 append_install_commands(INSTALL_CMD libluasocket.a DESTINATION ${STAGING_DIR}/lib)
 if(MONOLIBTIC)
     append_install_commands(INSTALL_CMD mcore.a score.a DESTINATION ${STAGING_DIR}/lib)
 else()
-    append_binary_install_command(INSTALL_CMD score.so DESTINATION common/socket)
-    append_binary_install_command(INSTALL_CMD mcore.so DESTINATION common/mime)
+    append_binary_install_command(INSTALL_CMD score${LUA_MODULE_SUFFIX} DESTINATION common/socket)
+    append_binary_install_command(INSTALL_CMD mcore${LUA_MODULE_SUFFIX} DESTINATION common/mime)
 endif()
 
 external_project(

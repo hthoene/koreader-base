@@ -11,6 +11,11 @@ list(APPEND CMAKE_ARGS
     -DLIBRESSL_TESTS=OFF
     -DENABLE_ASM=${WANT_SIMD}
 )
+if(WIN32)
+    # Clang ships its own `endian.h`, which the Windows compat
+    # layer does not expect: rely on the compat definitions.
+    list(APPEND CMAKE_ARGS -DHAVE_ENDIAN_H=FALSE)
+endif()
 
 list(APPEND BUILD_CMD COMMAND ninja)
 

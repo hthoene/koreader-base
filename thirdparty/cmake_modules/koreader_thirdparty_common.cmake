@@ -8,6 +8,13 @@ else()
     set(ISED sed -i -e)
 endif()
 
+# Suffix used for Lua C modules.
+if(WIN32)
+    set(LUA_MODULE_SUFFIX .dll)
+else()
+    set(LUA_MODULE_SUFFIX .so)
+endif()
+
 macro(assert_var_defined varName)
     if(NOT DEFINED ${varName})
         message(FATAL_ERROR "${varName} variable not defined!")
@@ -91,8 +98,26 @@ function(append_binary_install_command CMD_LIST)
 endfunction()
 
 function(append_shared_lib_install_commands CMD_LIST)
-    set_libname(LIB ${ARGN})
-    append_binary_install_command(${CMD_LIST} ${STAGING_DIR}/lib/${LIB} DESTINATION ${OUTPUT_DIR}/libs)
+    if(WIN32)
+        # DLL names do not follow a common convention (e.g. `libz.dll`,
+        # `libfreetype-6.dll`, `libturbojpeg.dll`), and they're baked into
+        # the import tables of their dependents: so the actual name is
+        # retrieved at build time from the import library.
+        cmake_parse_arguments("" "" "EXT;VERSION" "" ${ARGN})
+        list(GET _UNPARSED_ARGUMENTS 0 NAME)
+        list(APPEND ${CMD_LIST} COMMAND ${CMAKE_COMMAND}
+            -DDLLTOOL=${DLLTOOL}
+            -DOBJCOPY=${OBJCOPY}
+            -DKEEP_DEBUG=${KEEP_DEBUG}
+            -DIMPLIB=${STAGING_DIR}/lib/lib${NAME}.dll.a
+            -DSTAGING_DIR=${STAGING_DIR}
+            -DDESTINATION=${OUTPUT_DIR}/libs
+            -P ${CMAKE_CURRENT_FUNCTION_LIST_DIR}/koreader_install_dll.cmake
+        )
+    else()
+        set_libname(LIB ${ARGN})
+        append_binary_install_command(${CMD_LIST} ${STAGING_DIR}/lib/${LIB} DESTINATION ${OUTPUT_DIR}/libs)
+    endif()
     set(${CMD_LIST} ${${CMD_LIST}} PARENT_SCOPE)
 endfunction()
 
@@ -144,17 +169,24 @@ function(target_exports TARGET)
     else()
         set(FNAME ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}_exports.cmake)
     endif()
+    set(GEN_ARGS)
+    set(EXPORTS ${TARGET}.link_exports)
+    if(WIN32)
+        # Module-definition file (the extension matters for the linker).
+        set(GEN_ARGS --pe)
+        set(EXPORTS ${TARGET}.def)
+    endif()
     set(LINES
         "add_custom_command("
-        "    COMMAND ${BASE_DIR}/utils/gen_linker_exports.sh ${LD} ${TARGET}.link_args ${TARGET}.link_exports ${FILELIST}"
-        "    OUTPUT ${TARGET}.link_args ${TARGET}.link_exports"
+        "    COMMAND ${BASE_DIR}/utils/gen_linker_exports.sh ${GEN_ARGS} ${LD} ${TARGET}.link_args ${EXPORTS} ${FILELIST}"
+        "    OUTPUT ${TARGET}.link_args ${EXPORTS}"
         "    DEPENDS ${BASE_DIR}/utils/gen_linker_exports.sh ${FILELIST}"
         "    VERBATIM"
         ")"
-        "add_custom_target(${TARGET}-link-deps DEPENDS ${TARGET}.link_args ${TARGET}.link_exports)"
+        "add_custom_target(${TARGET}-link-deps DEPENDS ${TARGET}.link_args ${EXPORTS})"
         "target_link_options(${TARGET} PRIVATE -Wl,@${TARGET}.link_args)"
         "add_dependencies(${TARGET} ${TARGET}-link-deps)"
-        "set_target_properties(${TARGET} PROPERTIES LINK_DEPENDS \"${TARGET}.link_args$<SEMICOLON>${TARGET}.link_exports\")"
+        "set_target_properties(${TARGET} PROPERTIES LINK_DEPENDS \"${TARGET}.link_args$<SEMICOLON>${EXPORTS}\")"
     )
     list(JOIN LINES "\n" LINES)
     file(WRITE ${FNAME} "${LINES}\n")

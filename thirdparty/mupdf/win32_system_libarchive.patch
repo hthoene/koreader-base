@@ -1,0 +1,17 @@
+diff --git a/source/fitz/unlibarchive.c b/source/fitz/unlibarchive.c
+--- a/source/fitz/unlibarchive.c
++++ b/source/fitz/unlibarchive.c
+@@ -24,13 +24,8 @@
+ 
+ #ifdef HAVE_LIBARCHIVE
+ 
+-#ifdef _WIN32
+-#include "libarchive/archive.h"
+-#include "libarchive/archive_entry.h"
+-#else
+ #include <archive.h>
+ #include <archive_entry.h>
+-#endif
+ 
+ typedef struct
+ {

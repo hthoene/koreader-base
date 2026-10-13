@@ -20,9 +20,13 @@ if(NOT MONOLIBTIC)
     append_shared_lib_install_commands(INSTALL_CMD k2pdfopt VERSION 2)
 endif()
 
+# Fix Windows build.
+list(APPEND PATCH_FILES win32.patch)
+
 external_project(
     DOWNLOAD GIT 64aa9ccfcd55921c596458cb8a7197339d5f32c3
     https://github.com/koreader/libk2pdfopt.git
+    PATCH_FILES ${PATCH_FILES}
     PATCH_COMMAND ${PATCH_CMD}
     CMAKE_ARGS ${CMAKE_ARGS}
     SOURCE_SUBDIR lib

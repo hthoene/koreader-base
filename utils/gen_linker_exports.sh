@@ -4,6 +4,13 @@ set -eo pipefail
 
 debug=0
 
+# `--pe`: target PE/COFF (Windows): use a module-definition file.
+pe=0
+if [[ "$1" == '--pe' ]]; then
+    pe=1
+    shift
+fi
+
 [[ $# -gt 3 ]]
 
 linker="$1"
@@ -11,8 +18,20 @@ link_args="$2"
 exports_script="$3"
 shift 3
 
-linker_version="$("${linker}" -v 2>&1)"
+if [[ ${pe} -eq 1 ]]; then
+    # NOTE: the module-definition file is passed as a linker input; only the
+    # symbols it lists are exported (and they must be defined), so there's no
+    # need to add undefined references.
+    linker_version='PE/COFF'
+else
+    linker_version="$("${linker}" -v 2>&1)"
+fi
 case "${linker_version}" in
+    PE/COFF)
+        symarg=''
+        vsarg='%s\n'
+        vsfmt='def'
+        ;;
     *PROJECT:ld64-* | *PROJECT:dyld-* | *PROJECT:ld-*)
         symarg='-u _%s\n'
         vsarg='-exported_symbols_list %s\n'
@@ -52,8 +71,10 @@ if [[ ${debug} -eq 1 ]]; then
 fi
 
 {
-    # shellcheck disable=SC2059
-    printf -- "${symarg}" "${symbols[@]}"
+    if [[ -n "${symarg}" ]]; then
+        # shellcheck disable=SC2059
+        printf -- "${symarg}" "${symbols[@]}"
+    fi
     # shellcheck disable=SC2059
     printf -- "${vsarg}" "${exports_script}"
 } >"${link_args}"
@@ -70,6 +91,12 @@ case "${vsfmt}" in
     export)
         {
             printf '_%s\n' "${symbols[@]}"
+        } >"${exports_script}"
+        ;;
+    def)
+        {
+            printf 'EXPORTS\n'
+            printf '  %s\n' "${symbols[@]}"
         } >"${exports_script}"
         ;;
     version)

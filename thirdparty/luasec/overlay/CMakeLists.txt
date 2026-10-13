@@ -18,6 +18,11 @@ target_link_libraries(ssl PRIVATE
     PkgConfig::LuaJIT
     PkgConfig::OpenSSL
 )
+if(WIN32)
+    # Avoid `wincrypt.h` macros clashing with LibreSSL's definitions.
+    target_compile_definitions(ssl PRIVATE WIN32_LEAN_AND_MEAN)
+    target_link_libraries(ssl PRIVATE ws2_32)
+endif()
 target_sources(ssl PRIVATE
     src/options.c
     src/x509.c

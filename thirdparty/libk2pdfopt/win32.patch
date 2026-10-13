@@ -1,0 +1,122 @@
+diff --git a/willuslib/ansi.c b/willuslib/ansi.c
+--- a/willuslib/ansi.c
++++ b/willuslib/ansi.c
+@@ -324,7 +324,7 @@
+     {
+     int     status;
+ 
+-#ifdef WIN32
++#if 0 /* KOReader: `ansi_buffer` is not available (c.f. above). */
+     if (wsys_win32_api())
+         {
+         status=vsprintf(ansi_buffer,fmt,args);
+@@ -464,7 +464,7 @@
+             }
+         return;
+         }
+-#ifdef WIN32
++#ifdef HAVE_WIN32_API
+     if (wsys_win32_api())
+         switch (code)
+             {
+diff --git a/willuslib/wfile.c b/willuslib/wfile.c
+--- a/willuslib/wfile.c
++++ b/willuslib/wfile.c
+@@ -494,7 +494,7 @@
+ void wfile_findclose(wfile *wptr)
+ 
+     {
+-#if (defined(WIN32))
++#if (defined(HAVE_WIN32_API))
+     if (wsys_win32_api())
+         {
+         if ((HANDLE)wptr->winhandle==INVALID_HANDLE_VALUE)
+@@ -760,7 +760,7 @@
+     {
+ #if (defined(UNIX))
+     return(unix_is_symlink(filename,src));
+-#elif (defined(WIN32) || defined(WIN64))
++#elif (defined(HAVE_WIN32_API))
+     int status;
+     status=win_symlink(filename,src,255,NULL);
+     return(status==1 || status==2);
+@@ -1573,7 +1573,7 @@
+ int wfile_status(char *filename)
+ 
+     {
+-#if (defined(WIN32))
++#if (defined(HAVE_WIN32_API))
+     long    status;
+ 
+     if (wsys_win32_api())
+@@ -1989,7 +1989,7 @@
+     {
+     static char tpath[MAXFILENAMELEN];
+ 
+-#if (defined(WIN32))
++#if (defined(HAVE_WIN32_API))
+     if (wsys_win32_api())
+         GetTempPath(255,tpath);
+     else
+@@ -2195,7 +2195,7 @@
+ double wfile_size(char *filename)
+ 
+     {
+-#if (defined(WIN32) || defined(WIN64))
++#if (defined(HAVE_WIN32_API))
+     double size;
+     void *handle;
+     DWORD high_order_32_bits;
+@@ -2508,13 +2508,15 @@
+ int wfile_symlink_size(char *filename)
+ 
+     {
+-#ifdef WIN32
++#ifdef HAVE_WIN32_API
+     int status,size;
+     char target[256];
+     status=win_symlink(filename,target,255,&size);
+     if (status!=1 && status!=2)
+         return(-1);
+     return(size);
++#elif (defined(WIN32) || defined(WIN64))
++    return(-1);
+ #else
+     struct stat fs;
+     int status;
+diff --git a/willuslib/wsys.c b/willuslib/wsys.c
+--- a/willuslib/wsys.c
++++ b/willuslib/wsys.c
+@@ -26,7 +26,7 @@
+ #include <string.h>
+ #include <math.h>
+ #include <locale.h>
+-#ifdef HAVE_WIN32_API
++#if defined(HAVE_WIN32_API) || defined(_WIN32)
+ #include <windows.h>
+ #endif
+ #ifdef UNIX
+@@ -344,7 +344,7 @@
+ int wsys_num_cpus(void)
+ 
+     {
+-#ifdef HAVE_WIN32_API
++#if defined(HAVE_WIN32_API) || defined(_WIN32)
+     SYSTEM_INFO sysinfo;
+     GetSystemInfo(&sysinfo);
+     return(sysinfo.dwNumberOfProcessors);
+diff --git a/lib/CMakeLists.txt b/lib/CMakeLists.txt
+--- a/lib/CMakeLists.txt
++++ b/lib/CMakeLists.txt
+@@ -21,6 +21,11 @@
+ set(DEFS)
+ set(LIBS)
+ 
++if(WIN32)
++    # Only rely on the portable code paths.
++    list(APPEND DEFS NO_WIN32_API)
++endif()
++
+ pkg_check_modules(Leptonica lept REQUIRED IMPORTED_TARGET)
+ if(LEPTONICA_PATCH)
+     set(CMAKE_REQUIRED_LIBRARIES PkgConfig::Leptonica)

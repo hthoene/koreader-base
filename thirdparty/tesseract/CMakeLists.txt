@@ -3,6 +3,8 @@ list(APPEND PATCH_FILES
     no_debug_fonts.patch
     trim_the_fat.patch
     simd_kill_switch.patch
+    # Fix build with libc++.
+    libcxx_missing_includes.patch
 )
 
 list(APPEND CMAKE_ARGS
@@ -19,6 +21,8 @@ list(APPEND CMAKE_ARGS
     -DENABLE_SIMD=${WANT_SIMD}
     -DGRAPHICS_DISABLED=TRUE
     -DINSTALL_CONFIGS=FALSE
+    # Don't use the SW package manager (default on Windows).
+    -DSW_BUILD=FALSE
 )
 
 list(APPEND BUILD_CMD COMMAND ninja)

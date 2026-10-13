@@ -212,6 +212,10 @@ set_target_properties(djvulibre PROPERTIES
     VISIBILITY_INLINES_HIDDEN TRUE
 )
 target_compile_definitions(djvulibre PRIVATE HAVE_CONFIG_H)
+if(WIN32)
+    # Static library: no `__declspec(dllexport/dllimport)` decorations.
+    target_compile_definitions(djvulibre PUBLIC DJVUAPI= DDJVUAPI= MINILISPAPI=)
+endif()
 target_compile_options(djvulibre PRIVATE -Wall)
 # Unbreak build with GCC 16 at higher optimization levels (-O2 and above).
 target_compile_options(djvulibre PRIVATE -fno-strict-aliasing)

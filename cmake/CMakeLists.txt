@@ -172,7 +172,39 @@ check_libc_fn_exists(ngettext libintl.h HAS_GETTEXT)
 # We don't want to rely on `-static-libstdc++`, as it risks breaking the ODR. (Also, it was a pain to deal with because
 # of libtool, c.f., https://www.gnu.org/software/libtool/manual/html_node/Stripped-link-flags.html#Stripped-link-flags).
 #
-if(NOT ((ANDROID AND MONOLIBTIC) OR APPLE OR EMULATE_READER OR USE_SDL))
+if(WIN32)
+    # The C++ runtime DLLs are not part of the system on Windows.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        set(STL_NAMES libc++.dll libunwind.dll)
+    else()
+        set(STL_NAMES libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll)
+    endif()
+    get_filename_component(TC_BIN_DIR ${CMAKE_CXX_COMPILER} DIRECTORY)
+    set(STL_OUTPUTS)
+    foreach(STL_NAME IN LISTS STL_NAMES)
+        # GCC can locate its own runtime DLLs, llvm-mingw ships them under `<triple>/bin`.
+        execute_process(COMMAND ${CMAKE_CXX_COMPILER} -print-file-name=${STL_NAME} OUTPUT_VARIABLE STL_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
+        if(NOT IS_ABSOLUTE "${STL_PATH}" OR NOT EXISTS "${STL_PATH}")
+            set(STL_PATH ${TC_BIN_DIR}/../${CHOST}/bin/${STL_NAME})
+        endif()
+        if(NOT EXISTS "${STL_PATH}")
+            message(FATAL_ERROR "Could not find ${STL_NAME}!")
+        endif()
+        get_filename_component(STL_PATH ${STL_PATH} REALPATH)
+        message(STATUS "Looking for ${STL_NAME}: ${STL_PATH}")
+        set(STL_INSTALL_CMD)
+        append_binary_install_command(STL_INSTALL_CMD ${STL_PATH} DESTINATION ${OUTPUT_DIR}/libs)
+        add_custom_command(
+            OUTPUT ${OUTPUT_DIR}/libs/${STL_NAME}
+            COMMAND ${STL_INSTALL_CMD}
+            COMMENT "Installing '${STL_NAME}'"
+            DEPENDS ${STL_PATH}
+            VERBATIM
+        )
+        list(APPEND STL_OUTPUTS ${OUTPUT_DIR}/libs/${STL_NAME})
+    endforeach()
+    add_custom_target(stl-install ALL DEPENDS ${STL_OUTPUTS})
+elseif(NOT ((ANDROID AND MONOLIBTIC) OR APPLE OR EMULATE_READER OR USE_SDL))
     set(STL_INSTALL_CMD)
     if(ANDROID)
         set(STL_NAME libc++_shared.so)
@@ -858,7 +890,7 @@ summary_section("Target machine" FALSE CHOST CC CFLAGS CXX CXXFLAGS LD LDFLAGS D
 summary_section("Build machine"  FALSE HOSTCFLAGS HOSTCXX)
 summary_section("Miscellaneous"  FALSE KOTASYNC MONOLIBTIC USE_LJ_WPACLIENT USE_SDL WANT_SIMD GLIBC_VERSION_MAX KEEP_DEBUG)
 summary_section("CI"             TRUE  CI GITHUB_ACTIONS)
-summary_section("OS"             FALSE ANDROID APPLE LINUX)
+summary_section("OS"             FALSE ANDROID APPLE LINUX WIN32)
 summary_section("Platform"       FALSE EMULATE_READER CERVANTES KINDLE KOBO LEGACY POCKETBOOK REMARKABLE)
 summary_section("Luajit"         FALSE SKIP_LUAJIT_BIN USE_LUAJIT_LIB)
 if(ANDROID)

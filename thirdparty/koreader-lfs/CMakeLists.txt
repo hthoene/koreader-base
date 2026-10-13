@@ -16,7 +16,7 @@ list(APPEND BUILD_CMD COMMAND ninja)
 if(MONOLIBTIC)
     append_install_commands(INSTALL_CMD libkoreader-lfs.a DESTINATION ${STAGING_DIR}/lib)
 else()
-    append_binary_install_command(INSTALL_CMD libkoreader-lfs.so DESTINATION libs)
+    append_binary_install_command(INSTALL_CMD libkoreader-lfs${LUA_MODULE_SUFFIX} DESTINATION libs)
 endif()
 
 external_project(

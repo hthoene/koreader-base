@@ -216,6 +216,10 @@ else ifeq ($(TARGET), win32)
 	CHOST?=x86_64-w64-mingw32
 	WIN32=1
 	SDL=builtin
+	# Prefer Clang when available (e.g. llvm-mingw), otherwise use GCC (e.g. mingw-w64).
+	ifneq (,$(shell command -v $(CHOST)-clang 2>/dev/null))
+		USE_CLANG?=1
+	endif
 else ifeq ($(TARGET), pocketbook)
 	CHOST?=arm-pocketbook-linux-gnueabi
 	POCKETBOOK=1
@@ -353,6 +357,7 @@ else ifdef CHOST
 	LD:=$(CHOST)-ld
 	NM:=$(CHOST)-nm
 	OBJCOPY:=$(CHOST)-objcopy
+	DLLTOOL:=$(CHOST)-dlltool
 	RC:=$(CHOST)-windres
 	RANLIB:=$(CHOST)-ranlib
 	READELF:=$(CHOST)-readelf
@@ -604,6 +609,14 @@ else ifeq ($(TARGET), linux)
   else
     LINUX_ARCH = $(word 1,$(subst -, ,$(TARGET_MACHINE)))
   endif
+else ifeq ($(TARGET), win32)
+  ifneq (,$(filter x86_64-%,$(TARGET_MACHINE)))
+    # We want to run the build on any 64-bit CPU.
+    TARGET_CFLAGS = -march=x86-64 -mtune=generic
+    WIN32_ARCH = x86_64
+  else
+    WIN32_ARCH = $(word 1,$(subst -, ,$(TARGET_MACHINE)))
+  endif
 else ifeq ($(TARGET), macos)
   ifneq (,$(filter arm64-,$(TARGET_MACHINE)))
     # At the moment of writing, the Apple M1 is the lowest common denominator.
@@ -640,7 +653,14 @@ CFLAGS:=$(BASE_CFLAGS) $(QFLAGS) $(CSTD_FLAGS)
 CXXFLAGS:=$(BASE_CFLAGS) $(QFLAGS) $(CXXSTD_FLAGS)
 HOSTCFLAGS:=$(BASE_CFLAGS) $(QFLAGS)
 
-ifndef DARWIN
+ifdef WIN32
+  # NOTE: PE/COFF has no notion of rpath: our libraries are found
+  #       thanks to the launcher (c.f. `SetDllDirectory` usage).
+  LDFLAGS := -Wl,-O1,--gc-sections $(COMPAT_LDFLAGS)
+  ifeq (,$(USE_CLANG))
+    LDFLAGS += -static-libgcc
+  endif
+else ifndef DARWIN
   LDFLAGS := -Wl,-O1,--as-needed,--gc-sections $(COMPAT_LDFLAGS)
   # To prefer our shipped libraries over the system's,
   # we set a couple rpath via an include file to make sure it goes through buildsystem indirection unscathed...
@@ -673,10 +693,6 @@ ifdef ANDROID
 		# FIXME: `--Wl,--fix-cortex-a8` still needed?
 		LDFLAGS+=-Wl,--fix-cortex-a8 -march=armv7-a
 	endif
-endif
-
-ifeq ($(TARGET), win32)
-	LDFLAGS+=-Wl,--allow-multiple-definition -static-libgcc
 endif
 
 # this will create a path named build/arm-none-linux-gnueabi or similar
@@ -738,7 +754,9 @@ ifneq ($(TARGET), win32)
 endif
 
 # Improve reproducibility.
-ifndef DARWIN
+ifdef WIN32
+LDFLAGS += -Wl,--no-insert-timestamp
+else ifndef DARWIN
 LDFLAGS += -Wl,--build-id=none
 endif
 
@@ -967,6 +985,7 @@ set(CC             "$(strip $(CC))")
 set(CFLAGS         "$(strip $(CFLAGS))")
 set(CXX            "$(strip $(CXX))")
 set(CXXFLAGS       "$(strip $(CXXFLAGS))")
+set(DLLTOOL        "$(strip $(DLLTOOL))")
 set(LD             "$(strip $(LD))")
 set(LDFLAGS        "$(strip $(LDFLAGS))")
 set(DYNLIB_LDFLAGS "$(strip $(LDFLAGS) $(DYNLIB_LDFLAGS))")
@@ -1033,6 +1052,7 @@ pkgconfig = 'pkg-config'
 pkg-config = 'pkg-config'
 ranlib = '$(strip $(RANLIB))'
 strip = 'true'
+$(if $(WIN32),windres = '$(strip $(RC))')
 
 [built-in options]
 buildtype = '$(if $(KODEBUG),debug,release)'
@@ -1053,7 +1073,7 @@ else
 MESON_CROSS_TOOLCHAIN = $(CMAKE_DIR)/meson_cross_toolchain.ini
 MESON_HOST_TOOLCHAIN = $(CMAKE_DIR)/meson_host_toolchain.ini
 
-MESON_CROSS_SYSTEM = $(if $(ANDROID),android,linux)
+MESON_CROSS_SYSTEM = $(if $(ANDROID),android,$(if $(WIN32),windows,linux))
 ifneq (,$(filter aarch64-%,$(TARGET_MACHINE)))
   MESON_CROSS_CPU_FAMILY = aarch64
 else ifneq (,$(filter arm-% armv7a-%,$(TARGET_MACHINE)))

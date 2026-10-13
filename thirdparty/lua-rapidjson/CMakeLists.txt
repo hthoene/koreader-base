@@ -13,7 +13,7 @@ list(APPEND BUILD_CMD COMMAND ninja)
 if(MONOLIBTIC)
     append_install_commands(INSTALL_CMD rapidjson.a DESTINATION ${STAGING_DIR}/lib)
 else()
-    append_binary_install_command(INSTALL_CMD rapidjson.so DESTINATION common)
+    append_binary_install_command(INSTALL_CMD rapidjson${LUA_MODULE_SUFFIX} DESTINATION common)
 endif()
 
 external_project(

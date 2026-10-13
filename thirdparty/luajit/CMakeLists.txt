@@ -79,13 +79,30 @@ endif()
 
 list(APPEND BUILD_CMD COMMAND make ${BUILD_ARGS} amalg)
 
-list(APPEND INSTALL_CMD COMMAND make ${BUILD_ARGS} install PREFIX=${STAGING_DIR})
-
-if(NOT SKIP_LUAJIT_BIN)
-    append_binary_install_command(INSTALL_CMD ${STAGING_DIR}/bin/luajit)
+if(WIN32)
+    # LuaJIT's `install` target does not support Windows.
+    set(LUAJIT_INC_DIR ${STAGING_DIR}/include/luajit-2.1)
+    list(APPEND INSTALL_CMD
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${STAGING_DIR}/bin ${STAGING_DIR}/lib ${LUAJIT_INC_DIR}
+        COMMAND ${CMAKE_COMMAND} -E copy src/luajit.exe src/lua51.dll ${STAGING_DIR}/bin/
+        COMMAND ${CMAKE_COMMAND} -E copy src/libluajit-5.1.dll.a ${STAGING_DIR}/lib/libluajit.dll.a
+        COMMAND ${CMAKE_COMMAND} -E copy src/lauxlib.h src/lua.h src/lua.hpp src/luaconf.h src/luajit.h src/lualib.h ${LUAJIT_INC_DIR}/
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${STAGING_DIR}/lib/pkgconfig
+        COMMAND sh -c "sed -e 's|^prefix=.*|prefix=${STAGING_DIR}|' -e 's|^libname=.*|libname=luajit|' -e '/^Libs.private:/d' etc/luajit.pc >${STAGING_DIR}/lib/pkgconfig/luajit.pc"
+    )
+else()
+    list(APPEND INSTALL_CMD COMMAND make ${BUILD_ARGS} install PREFIX=${STAGING_DIR})
 endif()
 
-if(USE_LUAJIT_LIB)
+if(NOT SKIP_LUAJIT_BIN)
+    append_binary_install_command(INSTALL_CMD ${STAGING_DIR}/bin/luajit${CMAKE_EXECUTABLE_SUFFIX})
+endif()
+
+if(WIN32)
+    # NOTE: the LuaJIT DLL is installed alongside the executables,
+    # so it's found by the loader at startup (e.g. by the launcher).
+    append_binary_install_command(INSTALL_CMD ${STAGING_DIR}/bin/lua51.dll)
+elseif(USE_LUAJIT_LIB)
     append_shared_lib_install_commands(INSTALL_CMD luajit)
 else()
     # Prevent LUA modules from linking with the LuaJIT library.

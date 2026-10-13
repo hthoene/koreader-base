@@ -5,6 +5,11 @@ list(APPEND PATCH_FILES
     no_other_image_formats_except_bmp.patch
 )
 
+if(WIN32)
+    # Drop the 12/16-bit precision API from the DLL exports (since we disable it).
+    list(APPEND PATCH_CMD COMMAND ${ISED} "/^[[:space:]]*j[a-z]*1[26]/d" win/jpeg8.def)
+endif()
+
 list(APPEND CMAKE_ARGS
     -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
     # Project options.
@@ -33,6 +38,7 @@ external_project(
     DOWNLOAD URL a80f9f1c735b57d3cdd66daed1ba6bb4
     https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.2.0/libjpeg-turbo-3.2.0.tar.gz
     PATCH_FILES ${PATCH_FILES}
+    PATCH_COMMAND ${PATCH_CMD}
     CMAKE_ARGS ${CMAKE_ARGS}
     BUILD_COMMAND ${BUILD_CMD}
     INSTALL_COMMAND ${INSTALL_CMD}

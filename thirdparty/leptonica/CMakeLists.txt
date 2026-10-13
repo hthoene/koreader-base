@@ -34,6 +34,8 @@ list(APPEND CMAKE_ARGS
     # Project options.
     -DBUILD_PROG=FALSE
     -DSTRICT_CONF=TRUE
+    # Don't use the SW package manager (default on Windows).
+    -DSW_BUILD=FALSE
     # Yes please.
     -DENABLE_PNG=TRUE
     -DENABLE_ZLIB=TRUE
@@ -48,6 +50,13 @@ list(APPEND CMAKE_ARGS
 list(APPEND BUILD_CMD COMMAND ninja)
 
 list(APPEND INSTALL_CMD COMMAND ${CMAKE_COMMAND} --install .)
+if(WIN32)
+    # Use the same pkg-config name as on other platforms.
+    list(APPEND INSTALL_CMD COMMAND ${CMAKE_COMMAND} -E rename
+        ${STAGING_DIR}/lib/pkgconfig/lept_${CMAKE_BUILD_TYPE}.pc
+        ${STAGING_DIR}/lib/pkgconfig/lept.pc
+    )
+endif()
 
 if(NOT MONOLIBTIC)
     append_shared_lib_install_commands(INSTALL_CMD leptonica VERSION 6)

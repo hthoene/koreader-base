@@ -96,7 +96,7 @@ declare_koreader_target(
     koreader-cre TYPE monolibtic
     DEPENDS crengine::crengine luajit::luajit
     SOURCES cre.cpp
-    SUFFIX .so
+    SUFFIX ${LUA_MODULE_SUFFIX}
     VISIBILITY hidden
 )
 
@@ -105,7 +105,7 @@ declare_koreader_target(
     koreader-djvu TYPE monolibtic
     DEPENDS blitbuffer djvulibre::djvulibre libk2pdfopt::k2pdfopt luajit::luajit
     SOURCES djvu.c
-    SUFFIX .so
+    SUFFIX ${LUA_MODULE_SUFFIX}
     VISIBILITY hidden
 )
 
@@ -142,7 +142,7 @@ declare_koreader_target(
     koreader-nnsvg TYPE monolibtic
     DEPENDS luajit::luajit nanosvg::nanosvg
     SOURCES nnsvg.c
-    SUFFIX .so
+    SUFFIX ${LUA_MODULE_SUFFIX}
     VISIBILITY hidden
 )
 
@@ -151,7 +151,7 @@ declare_koreader_target(
     koreader-xtext TYPE monolibtic
     DEPENDS freetype2::freetype fribidi::fribidi harfbuzz::harfbuzz luajit::luajit libunibreak::unibreak
     SOURCES xtext.cpp
-    SUFFIX .so
+    SUFFIX ${LUA_MODULE_SUFFIX}
     VISIBILITY hidden
 )
 
@@ -222,7 +222,7 @@ declare_koreader_target(
 )
 
 # unpack
-if(NOT (ANDROID OR APPLE OR EMULATE_READER))
+if(NOT (ANDROID OR APPLE OR EMULATE_READER OR WIN32))
     set(EXCLUDE_FROM_ALL)
 else()
     set(EXCLUDE_FROM_ALL EXCLUDE_FROM_ALL)

@@ -8,3 +8,7 @@ add_library(tffi_wrap)
 target_include_directories(tffi_wrap PRIVATE deps/http-parser)
 target_link_libraries(tffi_wrap PRIVATE PkgConfig::OpenSSL)
 target_sources(tffi_wrap PRIVATE deps/http-parser/http_parser.c deps/turbo_ffi_wrap.c)
+if(WIN32)
+    # Avoid `wincrypt.h` macros clashing with LibreSSL's definitions.
+    target_compile_definitions(tffi_wrap PRIVATE WIN32_LEAN_AND_MEAN)
+endif()

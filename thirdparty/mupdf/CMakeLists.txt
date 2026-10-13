@@ -21,6 +21,8 @@ list(APPEND PATCH_FILES
     visibility.patch
     # Backport addition of `passthrough` member to `fz_device` (from b20077eb2).
     passthrough_device.patch
+    # Use our libarchive headers on Windows too.
+    win32_system_libarchive.patch
 )
 
 # Remove unnecessary vendored thirdparty libraries.
@@ -43,11 +45,7 @@ list(APPEND PATCH_CMD COMMAND rm -rf
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} MUPDF_BUILD_TYPE)
 
-if(WIN32)
-    set(OS)
-else()
-    set(OS Other)
-endif()
+set(OS Other)
 
 set(LIB_SPEC mupdf)
 set_libname(LIB ${LIB_SPEC})
@@ -65,6 +63,11 @@ string(APPEND XCFLAGS
     " -DHAVE_LIBARCHIVE=1"
     " -DHAVE_WEBP=1"
 )
+if(WIN32)
+    # MuPDF assumes SSE4.1 is available when targeting Windows/x86 (`_M_X64`),
+    # but we only target the baseline x86-64 ISA (like on other platforms).
+    string(APPEND XCFLAGS " -DARCH_HAS_SSE=0")
+endif()
 if(ANDROID AND CHOST MATCHES "^armv7a-.*")
     # NOTE: to be removed when upgrading the minimal supported API level to 24.
     # (https://android.googlesource.com/platform/bionic/+/master/docs/32-bit-abi.md)

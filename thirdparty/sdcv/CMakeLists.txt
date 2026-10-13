@@ -6,6 +6,8 @@ list(APPEND PATCH_FILES
     sdcv-locale-hack.patch
     # Ignore hidden filesystem entries.
     ignore_hidden.patch
+    # `g_stat` expects a `GStatBuf` (which is not `struct stat` on Windows).
+    gstatbuf.patch
 )
 
 string(APPEND GLIB2_INCLUDE_DIRS
@@ -25,6 +27,11 @@ if(APPLE)
         $<SEMICOLON> "-framework Foundation"
         $<SEMICOLON> "-framework AppKit"
     )
+elseif(WIN32)
+    # System libraries needed by the static GLib.
+    foreach(LIB ws2_32 winmm shlwapi ole32)
+        string(APPEND GLIB2_LIBRARIES $<SEMICOLON> -l${LIB})
+    endforeach()
 else()
     # Need pthread library and rt library on old glibc (for `clock_gettime`).
     string(APPEND GLIB2_LIBRARIES $<SEMICOLON> -pthread)
@@ -35,6 +42,8 @@ endif()
 
 if(ANDROID OR MONOLIBTIC)
     set(ZLIB ${STAGING_DIR}/lib/libz.a)
+elseif(WIN32)
+    set(ZLIB ${STAGING_DIR}/lib/libz.dll.a)
 else()
     set(ZLIB ${STAGING_DIR}/lib/libz${LIB_EXT})
 endif()
@@ -53,7 +62,7 @@ list(APPEND CMAKE_ARGS
 
 list(APPEND BUILD_CMD COMMAND ninja)
 
-append_binary_install_command(INSTALL_CMD sdcv)
+append_binary_install_command(INSTALL_CMD sdcv${CMAKE_EXECUTABLE_SUFFIX})
 
 external_project(
     DOWNLOAD URL 25c6a5918f5714df7bbcc705f0e4c23f
