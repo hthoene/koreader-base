@@ -169,29 +169,78 @@ function Process:close()
     return nil, "exit", code
 end
 
+-- Create a pipe, only one end of which (`"read"` or `"write"`) is inheritable by a child process.
+local function create_pipe(child_end, size)
+    local sa = ffi.new("SECURITY_ATTRIBUTES", ffi.sizeof("SECURITY_ATTRIBUTES"), nil, 1)
+    local pipe = ffi.new("HANDLE[2]")
+    if C.CreatePipe(pipe, pipe + 1, sa, size or 0) == 0 then
+        return nil, nil, "CreatePipe: " .. win32.errorString()
+    end
+    C.SetHandleInformation(pipe[child_end == "read" and 1 or 0], C.HANDLE_FLAG_INHERIT, 0)
+    return pipe[0], pipe[1]
+end
+
+-- Write all of `data` to a handle.
+local function write_all(handle, data)
+    local written = ffi.new("DWORD[1]")
+    local offset = 0
+    while offset < #data do
+        if C.WriteFile(handle, ffi.cast("const char *", data) + offset, #data - offset, written, nil) == 0 then
+            return false
+        end
+        offset = offset + written[0]
+    end
+    return true
+end
+
 --[[--
 Run a program, without going through a shell (and without a console window).
 
 The standard error is redirected to our own (i.e. the log), when available.
 
 @tparam {string,...} args the program and its arguments
-@bool capture_stdout whether to capture the standard output (c.f. @{Process:read})
+@tparam[opt] table options:
+
+- `capture_stdout`: capture the standard output (c.f. @{Process:read})
+- `input`: data written to the standard input (which is then closed)
+- `background`: run with a lower priority (for non-interactive tasks)
+
 @treturn Process|nil the started program, or nil on failure
 @treturn string error message (on failure)
 ]]
-function win32.spawn(args, capture_stdout)
+function win32.spawn(args, options)
+    options = options or {}
     local inherit = {}
+    local err
     local stdout_read, stdout_write
-    if capture_stdout then
-        local sa = ffi.new("SECURITY_ATTRIBUTES", ffi.sizeof("SECURITY_ATTRIBUTES"), nil, 1)
-        local pipe = ffi.new("HANDLE[2]")
-        if C.CreatePipe(pipe, pipe + 1, sa, 0) == 0 then
-            return nil, "CreatePipe: " .. win32.errorString()
+    if options.capture_stdout then
+        stdout_read, stdout_write, err = create_pipe("write")
+        if not stdout_read then
+            return nil, err
         end
-        stdout_read, stdout_write = pipe[0], pipe[1]
-        -- Only the child end of the pipe must be inherited.
-        C.SetHandleInformation(stdout_read, C.HANDLE_FLAG_INHERIT, 0)
         table.insert(inherit, stdout_write)
+    end
+    local stdin_read, stdin_write
+    if options.input then
+        -- NOTE: with a big enough buffer, writing the input won't block.
+        stdin_read, stdin_write, err = create_pipe("read", #options.input + 4096)
+        if not stdin_read then
+            if stdout_read then
+                C.CloseHandle(stdout_read)
+                C.CloseHandle(stdout_write)
+            end
+            return nil, err
+        end
+        table.insert(inherit, stdin_read)
+    end
+    -- Close the child ends of the pipes (and ours too on failure).
+    local function close_pipes(ours_too)
+        local handles = { stdout_write, stdin_read, ours_too and stdout_read, ours_too and stdin_write }
+        for i = 1, 4 do
+            if handles[i] then
+                C.CloseHandle(handles[i])
+            end
+        end
     end
     local stderr = C.GetStdHandle(C.STD_ERROR_HANDLE)
     local flags = ffi.new("DWORD[1]")
@@ -205,9 +254,13 @@ function win32.spawn(args, capture_stdout)
     local si = ffi.new("STARTUPINFOEXW")
     si.StartupInfo.cb = ffi.sizeof(si)
     si.StartupInfo.dwFlags = C.STARTF_USESTDHANDLES
+    si.StartupInfo.hStdInput = stdin_read
     si.StartupInfo.hStdOutput = stdout_write
     si.StartupInfo.hStdError = stderr
     local creation_flags = C.CREATE_NO_WINDOW
+    if options.background then
+        creation_flags = bit.bor(creation_flags, C.BELOW_NORMAL_PRIORITY_CLASS)
+    end
     -- Only inherit the handles we need (in particular, not the files we have opened,
     -- as Windows would then prevent renaming or deleting them).
     local attrs_buf, handles
@@ -220,11 +273,8 @@ function win32.spawn(args, capture_stdout)
         if C.InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, size) == 0
            or C.UpdateProcThreadAttribute(si.lpAttributeList, 0, C.PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
                                           handles, ffi.sizeof(handles), nil, nil) == 0 then
-            local err = win32.errorString()
-            if stdout_read then
-                C.CloseHandle(stdout_read)
-                C.CloseHandle(stdout_write)
-            end
+            err = win32.errorString()
+            close_pipes(true)
             return nil, "UpdateProcThreadAttribute: " .. err
         end
         creation_flags = bit.bor(creation_flags, C.EXTENDED_STARTUPINFO_PRESENT)
@@ -238,25 +288,65 @@ function win32.spawn(args, capture_stdout)
     local pi = ffi.new("PROCESS_INFORMATION")
     local ok = C.CreateProcessW(nil, cmdline, nil, nil, #inherit > 0 and 1 or 0, creation_flags,
                                 nil, nil, ffi.cast("STARTUPINFOW *", si), pi)
-    local err = ok == 0 and win32.errorString()
+    err = ok == 0 and win32.errorString()
     if si.lpAttributeList ~= nil then
         C.DeleteProcThreadAttributeList(si.lpAttributeList)
     end
-    if stdout_write then
-        C.CloseHandle(stdout_write)
-    end
+    close_pipes(ok == 0)
     if ok == 0 then
-        if stdout_read then
-            C.CloseHandle(stdout_read)
-        end
         return nil, string.format("CreateProcess(%s): %s", args[1], err)
     end
     C.CloseHandle(pi.hThread)
+    if stdin_write then
+        -- NOTE: may fail if the program already exited (without reading it).
+        write_all(stdin_write, options.input)
+        C.CloseHandle(stdin_write)
+    end
     return setmetatable({
         handle = pi.hProcess,
         pid = tonumber(pi.dwProcessId),
         stdout = stdout_read,
     }, Process)
+end
+
+--[[--
+Take over the standard output, e.g. to use it as a (binary) channel to the parent process:
+anything else written to it from now on (e.g. logs) goes to the standard error instead.
+
+@treturn function write function (`write(data)`, returns true on success), or nil if
+there's no standard output
+]]
+function win32.takeStdout()
+    require("ffi/posix_h")
+    local process = C.GetCurrentProcess()
+    local stdout = C.GetStdHandle(C.STD_OUTPUT_HANDLE)
+    local handle = ffi.new("HANDLE[1]")
+    -- Keep our own copy (the C runtime closes its own when redirected below).
+    if stdout == nil or ffi.cast("intptr_t", stdout) == -1
+       or C.DuplicateHandle(process, stdout, process, handle, 0, 0, C.DUPLICATE_SAME_ACCESS) == 0 then
+        handle = nil
+    end
+    -- Redirect both the C runtime and the Windows standard outputs.
+    if C.dup2(2, 1) ~= 0 then
+        local null = C.open("NUL", C.O_WRONLY)
+        if null >= 0 then
+            C.dup2(null, 1)
+            C.close(null)
+        end
+    end
+    C.SetStdHandle(C.STD_OUTPUT_HANDLE, C.GetStdHandle(C.STD_ERROR_HANDLE))
+    if not handle then
+        return
+    end
+    handle = handle[0]
+    return function(data)
+        return write_all(handle, data)
+    end
+end
+
+--- Read all of the standard input (as is: unlike `io.stdin`, without any newline translation).
+function win32.readStdin()
+    return read_all({ stdout = C.GetStdHandle(C.STD_INPUT_HANDLE) })
 end
 
 -- }}}
@@ -396,6 +486,10 @@ Make some standard library functions behave like on POSIX systems:
 - `lfs.currentdir` uses forward slashes as path separators (like the rest of our code).
 ]]
 function win32.setupStdlib()
+    require("ffi/posix_h")
+    -- Open files in binary mode by default (no newline translation), like on other platforms
+    -- (our launcher already does it, but not the standalone LuaJIT interpreter).
+    C._set_fmode(0x8000) -- _O_BINARY
     local lfs = require("libs/libkoreader-lfs")
     local lfs_currentdir = lfs.currentdir
     lfs.currentdir = function()
@@ -405,7 +499,6 @@ function win32.setupStdlib()
         end
         return dir, err
     end
-    require("ffi/posix_h")
     -- Map the Windows errors to `errno` values (like the C runtime does).
     local ERRNO_FROM_ERROR = {
         [2] = 2,      -- ERROR_FILE_NOT_FOUND: ENOENT

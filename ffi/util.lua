@@ -331,6 +331,9 @@ end
 --                       as waitpid will return -1 w/ an ECHILD errno.
 -- NOTE: Assumes the target platform is POSIX compliant.
 -- NOTE: Not supported on Windows (no `fork`), callers must check @{util.canFork}.
+--       There, the following functions (`util.isSubProcessDone`, `util.terminateSubProcess`,
+--       `util.getNonBlockingReadSize` & `util.readAllFromFD`) accept instead the processes
+--       started with `win32.spawn` (as both pid & fd, the latter for their standard output).
 function util.runInSubProcess(func, with_pipe, double_fork)
     if win32 then
         return false, "fork() is not supported on Windows"
@@ -448,7 +451,7 @@ end
 -- Returns true if process was collected or has already exited, false if process is still running.
 function util.isSubProcessDone(pid, wait)
     if win32 then
-        return true
+        return type(pid) ~= "table" or pid:wait(not wait and 0 or nil) ~= nil
     end
     local status = ffi.new('int[1]')
     local ret = C.waitpid(pid, status, wait and 0 or C.WNOHANG)
@@ -465,6 +468,9 @@ end
 --- Terminate subprocess pid by sending SIGKILL
 function util.terminateSubProcess(pid)
     if win32 then
+        if type(pid) == "table" then
+            pid:kill()
+        end
         return
     end
     local done = util.isSubProcessDone(pid)
@@ -491,7 +497,7 @@ end
 -- without writing anything
 function util.getNonBlockingReadSize(fd_or_luafile)
     if win32 then
-        -- Only supported for the programs started with `util.popen`.
+        -- Only supported for the programs started with `util.popen` (or `win32.spawn`).
         if type(fd_or_luafile) == "table" and fd_or_luafile.available then
             return fd_or_luafile:available()
         end
@@ -556,6 +562,9 @@ end
 --- Read all data from file descriptor, and close it.
 -- This blocks until remote side has closed its side of the fd
 function util.readAllFromFD(fd)
+    if win32 and type(fd) == "table" then
+        return fd:read("*a")
+    end
     local chunksize = 8192
     local buffer = ffi.new('char[?]', chunksize, {0})
     local data = {}
@@ -848,7 +857,7 @@ going through a shell (so there's no need for quoting the arguments).
 ]]
 function util.popen(args)
     if win32 then
-        return win32.spawn(args, true)
+        return win32.spawn(args, { capture_stdout = true })
     end
     local quoted = {}
     for i, arg in ipairs(args) do

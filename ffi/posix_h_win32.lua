@@ -143,4 +143,5 @@ int strncasecmp(const char *, const char *, size_t) __asm__("_strnicmp");
 size_t strnlen(const char *, size_t);
 
 int _putenv_s(const char *, const char *);
+int _set_fmode(int);
 ]]
