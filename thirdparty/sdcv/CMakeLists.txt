@@ -32,6 +32,10 @@ elseif(WIN32)
     foreach(LIB ws2_32 winmm shlwapi ole32)
         string(APPEND GLIB2_LIBRARIES $<SEMICOLON> -l${LIB})
     endforeach()
+    # The static GLib relies on a TLS callback (for its initialization and
+    # thread cleanups): make sure the TLS directory gets linked in (nothing
+    # else references it, so the callback would never be invoked otherwise).
+    string(APPEND GLIB2_LIBRARIES $<SEMICOLON> -Wl,--undefined=_tls_used)
 else()
     # Need pthread library and rt library on old glibc (for `clock_gettime`).
     string(APPEND GLIB2_LIBRARIES $<SEMICOLON> -pthread)
