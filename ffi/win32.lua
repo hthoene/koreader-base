@@ -261,6 +261,25 @@ end
 
 -- }}}
 
+-- Memory. {{{
+
+--[[--
+Get the physical memory status.
+
+@treturn int available memory (in bytes), or nil on error
+@treturn int total memory (in bytes), or the error message
+]]
+function win32.getMemoryStatus()
+    local status = ffi.new("MEMORYSTATUSEX")
+    status.dwLength = ffi.sizeof(status)
+    if C.GlobalMemoryStatusEx(status) == 0 then
+        return nil, win32.errorString()
+    end
+    return tonumber(status.ullAvailPhys), tonumber(status.ullTotalPhys)
+end
+
+-- }}}
+
 -- Files. {{{
 
 local HIDDEN_ATTRIBUTES = bit.bor(C.FILE_ATTRIBUTE_HIDDEN, C.FILE_ATTRIBUTE_SYSTEM)

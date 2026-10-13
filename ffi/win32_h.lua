@@ -46,6 +46,18 @@ typedef union _ULARGE_INTEGER {
   ULONGLONG QuadPart;
 } ULARGE_INTEGER;
 
+typedef struct _MEMORYSTATUSEX {
+  DWORD dwLength;
+  DWORD dwMemoryLoad;
+  ULONGLONG ullTotalPhys;
+  ULONGLONG ullAvailPhys;
+  ULONGLONG ullTotalPageFile;
+  ULONGLONG ullAvailPageFile;
+  ULONGLONG ullTotalVirtual;
+  ULONGLONG ullAvailVirtual;
+  ULONGLONG ullAvailExtendedVirtual;
+} MEMORYSTATUSEX;
+
 typedef long HRESULT;
 
 typedef struct _GUID {
@@ -147,6 +159,8 @@ BOOL QueryPerformanceFrequency(LARGE_INTEGER *);
 void GetSystemTimePreciseAsFileTime(FILETIME *);
 ULONGLONG GetTickCount64(void);
 BOOL QueryUnbiasedInterruptTime(ULONGLONG *);
+
+BOOL GlobalMemoryStatusEx(MEMORYSTATUSEX *);
 
 DWORD GetFullPathNameA(LPCSTR, DWORD, LPSTR, LPSTR *);
 BOOL SetDllDirectoryA(LPCSTR);
